@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import Web3 from 'web3';
 import VotingContract from './contracts/Voting.json';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 function App() {
   const [web3, setWeb3] = useState(null);
@@ -38,8 +40,22 @@ function App() {
           // Check if the connected account has already voted
           const hasAlreadyVoted = await contractInstance.methods.hasVoted(accounts[0]).call();
           setHasVoted(hasAlreadyVoted);
+          
+          // Subscribe to Voted event
+          contractInstance.events.Voted({ filter: { _voter: accounts[0] } })
+            .on('data', async (event) => {
+              console.log('Voted event received:', event);
+              if (isLoading) { // Check if loading notification is still active
+                setIsLoading(false); // Turn off loading state
+                toast.success('Your vote has been recorded!');
+                setHasVoted(true); // Update the state to reflect that the user has voted
+              }
+            })
+            .on('error', (error) => {
+              console.error('Error listening to Voted event:', error);
+            });
         } else {
-          alert('Please install MetaMask to use this dApp.');
+          toast.error('Please install MetaMask to use this dApp.');
         }
       } catch (error) {
         console.error('Error initializing app:', error);
@@ -50,28 +66,35 @@ function App() {
 
   const handleVote = async () => {
     if (!selectedCandidate || !contract) return;
-
+  
     try {
       setIsLoading(true);
       const accounts = await web3.eth.getAccounts();
       console.log('Sending transaction from account:', accounts[0]);
+      // Display loading notification
+      const loadingToastId = toast.info('Waiting for the transaction to be confirmed...', { autoClose: false });
       const gas = await contract.methods.vote(selectedCandidate).estimateGas({ from: accounts[0] });
       const tx = await contract.methods.vote(selectedCandidate).send({ from: accounts[0], gas });
       console.log('Transaction successful. Transaction hash:', tx.transactionHash);
-      setHasVoted(true); // Update the state to reflect that the user has voted
-      alert('Vote successful');
+      // Remove loading notification once the transaction is successful
+      toast.dismiss(loadingToastId);
+      // Trigger success notification
+      toast.success('Your vote has been recorded!');
+      // Update the state to reflect that the user has voted
+      setHasVoted(true);
     } catch (error) {
       console.error('Error voting:', error);
-      console.log('MetaMask RPC Error Response:', error.message); // Log MetaMask error response
+      console.log('MetaMask RPC Error Response:', error.message);
       if (error.code === 4001) {
-        alert('Transaction rejected by user.');
+        toast.error('Transaction rejected by user.');
       } else {
-        alert('Error voting. Please try again later.');
+        toast.error('Error voting. Please try again later.');
       }
     } finally {
       setIsLoading(false);
     }
   };
+  
 
   const loadCandidates = async () => {
     if (!contract) return;
@@ -80,9 +103,9 @@ function App() {
       const candidateCount = await contract.methods.getCandidateCount().call();
       const candidateList = [];
       for (let i = 0; i < candidateCount; i++) {
-        const voteCount = parseInt(await contract.methods.totalVotesFor(i).call(), 10); // Parse vote count as an integer
+        const voteCount = parseInt(await contract.methods.totalVotesFor(i).call(), 10);
         const candidate = await contract.methods.candidates(i).call();
-        candidateList.push({ ...candidate, voteCount }); // Add vote count to candidate object
+        candidateList.push({ ...candidate, voteCount });
       }
       console.log(candidateList);
       setCandidates(candidateList);
@@ -99,14 +122,14 @@ function App() {
     <div className="App">
       <header className="App-header">
         <h1>Voting App</h1>
-        <p>Account: {accounts.length > 0 ? accounts[0] : 'No account connected'}</p> {/* Display connected account address */}
-        {hasVoted && <p>You have already voted. Cannot vote again.</p>} {/* Display message if user has already voted */}
+        <p>Account: {accounts.length > 0 ? accounts[0] : 'No account connected'}</p>
+        {hasVoted && <p>You have already voted. Cannot vote again.</p>}
         <div>
           <h2>Candidates:</h2>
           <ul>
             {candidates.map((candidate, index) => (
               <li key={index}>
-                {candidate.name} - Votes: {candidate.voteCount} {/* Display candidate name and vote count */}
+                {candidate.name} - Votes: {candidate.voteCount}
               </li>
             ))}
           </ul>
@@ -125,6 +148,8 @@ function App() {
             Vote
           </button>
         </div>
+        {/* Toastify container */}
+        <ToastContainer />
       </header>
     </div>
   );
