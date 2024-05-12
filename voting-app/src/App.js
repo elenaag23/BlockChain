@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import Web3 from 'web3';
 import VotingContract from './contracts/Voting.json';
+import VotingPermissionsContract from './contracts/VotingPermissions.json';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -9,10 +10,14 @@ function App() {
   const [web3, setWeb3] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [contract, setContract] = useState(null);
+  const [votingPermissionsContract, setPermissionContract] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasVoted, setHasVoted] = useState(false);
+  const [hasSet, setHasSet] = useState(false);
+  const [isEligible, setIsEligible] = useState(false);
+  const [age, setAge] = useState('');
 
   useEffect(() => {
     const init = async () => {
@@ -37,9 +42,22 @@ function App() {
           );
           setContract(contractInstance);
 
+          const votingPermissionsDeployedNetwork = VotingPermissionsContract.networks[networkId];
+          const votingPermissionsContractInstance = new web3Instance.eth.Contract(
+          VotingPermissionsContract.abi,
+          votingPermissionsDeployedNetwork && votingPermissionsDeployedNetwork.address
+        );
+        setPermissionContract(votingPermissionsContractInstance);
+
+
           // Check if the connected account has already voted
           const hasAlreadyVoted = await contractInstance.methods.hasVoted(accounts[0]).call();
           setHasVoted(hasAlreadyVoted);
+
+          // Check if the connected account has already voted
+          const hasAlreadySet = await votingPermissionsContractInstance.methods.hasSet(accounts[0]).call();
+          setHasSet(hasAlreadySet);
+
           
           // Subscribe to Voted event
           contractInstance.events.Voted({ filter: { _voter: accounts[0] } })
@@ -118,13 +136,61 @@ function App() {
     loadCandidates();
   }, [contract]);
 
+  const checkAgeEligibility = async () => {
+    try {
+      const eligible = await votingPermissionsContract.methods.meetsAgeRequirement(accounts[0], 18).call();
+      console.log("eligible value: ", eligible);
+      setIsEligible(eligible);
+    } catch (error) {
+      console.error('Error checking age eligibility:', error);
+    }
+  };
+
+  const handleAgeChange = (event) => {
+    console.log("age input: ", event.target.value);
+    setAge(event.target.value);
+  };
+
+
+  // submit age function
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await votingPermissionsContract.methods.setAge(accounts[0], age).send({ from: accounts[0] });
+      console.log('Age set successfully');
+      setHasSet(true);
+      checkAgeEligibility();
+    } catch (error) {
+      console.error('Error setting age:', error);
+    }
+  };
+
   return (
     <div className="App">
       <header className="App-header">
+      
         <h1>Voting App</h1>
         <p>Account: {accounts.length > 0 ? accounts[0] : 'No account connected'}</p>
+
+        {
+          isEligible == false && <form onSubmit={handleSubmit}>
+          <label>
+            Age:
+            <input type="number" value={age} onChange={handleAgeChange} />
+          </label>
+          <button type="submit">Check Eligibility</button>
+        </form>
+        }
+
+        
+
         {hasVoted && <p>You have already voted. Cannot vote again.</p>}
-        <div>
+
+        {hasSet && <p>You set your age once. You cannot set again</p>}
+
+       <div>
+          <div>
           <h2>Candidates:</h2>
           <ul>
             {candidates.map((candidate, index) => (
@@ -148,6 +214,8 @@ function App() {
             Vote
           </button>
         </div>
+        </div>
+
         {/* Toastify container */}
         <ToastContainer />
       </header>
